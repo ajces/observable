@@ -5,7 +5,7 @@
   "main": "dist/observable.js",
   "jsnext:main": "src/index.js",
   "module": "src/index.js",
-  "peerDependencies": {
+  "dependencies": {
     "@ajces/utils": "^1.0.5"
   },
   "devDependencies": {
@@ -14,7 +14,6 @@
     "rollup": "^0.47.6",
     "uglify-js": "^2.7.5"
   },
-  "dependencies": {},
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "npm run bundle && npm run minify",

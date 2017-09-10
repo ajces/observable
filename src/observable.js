@@ -39,6 +39,18 @@ export function endTransaction() {
   }
 }
 
+export function action(thunk, context) {
+  return function() {
+    startTransaction();
+    if (context != null) {
+      thunk.apply(context, arguments);
+    } else {
+      thunk(arguments); // not sure this makes sense as it would not be necessarily bound to observable state...
+    }
+    endTransaction();
+  }
+}
+
 function asObservable(initialValue) {
   var value = initialValue;
   var observers = [];
@@ -127,13 +139,9 @@ export function autorun(thunk) {
     },
     run: function() {
       stack.push(this);
-      observing.forEach(function(o) {
-        o.unsubscribe(this);
-      });
+      observing.forEach(function(o) { o.unsubscribe(this); });
       thunk();
-      observing.forEach(function(o) {
-        o.subscribe(this);
-      });
+      observing.forEach(function(o) { o.subscribe(this); });
       stack.pop();
     },
     key: thunk.key ? thunk.key : randomString(KEY_LENGTH)
@@ -152,8 +160,17 @@ export function computed(thunk, context) {
   return current;
 }
 
-/*
-var state = observable({
+export function Store(state, actions) {
+  var obsState = observable(state);
+  var acts = {};
+  Object.keys(actions).forEach(function(key) {
+    acts[key] = action(actions[key], obsState);
+  });
+  return { state: obsState, actions: acts };
+}
+
+/* example usage
+const store = Store({
   counter: 0,
   first: "Andy",
   last: "Johnson",
@@ -166,32 +183,29 @@ var state = observable({
   test2: function() {
     return this.test + ": " + this.counter;
   }
+},
+{
+  increment: function() {this.counter++;},
+  decrement: function() {this.counter--;},
+  updateFirst: function(name) {this.first = name;},
+  updateLast: function(name) {this.last = name;} 
 });
 
 autorun(function() {
-  console.log(state.test2);
+  console.log(store.state.test2);
 });
 
 autorun(function() {
-  console.log(state.test);
+  console.log(store.state.test);
 })
 
 autorun(function() {
-  console.log(state.nested.data);
+  console.log(store.state.nested.data);
 })
 
-startTransaction()
-state.counter += 1;
-endTransaction();
-startTransaction()
-state.first = "Jon";
-state.counter += 1;
-endTransaction()
-startTransaction()
-state.counter += 10;
-startTransaction();
-state.last = "Doe";
-state.nested.data = "fizzbuzz";
-endTransaction();
-endTransaction();
+store.actions.increment();
+store.actions.updateFirst("Jon");
+store.actions.updateLast("Doe");
+store.actions.decrement();
+store.state.nested.data = "fizzbuzz";
 */
