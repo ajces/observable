@@ -1,14 +1,14 @@
-// inspired by @mweststrate
-// initial observable implementation from -> https://www.youtube.com/watch?v=TfxfRkNCnmk
-'use strict'
+// initial code from https://www.youtube.com/watch?v=TfxfRkNCnmk
+"use strict";
 import { randomString } from "@ajces/utils";
 
-var stack = [];
-var transaction = {}; // {[randomString(KEY_LENGTH)]: {reaction, count}}
-var KEY_LENGTH = 8;
+const stack = [];
 
-var isTransaction = false;
-var actions = 0;
+const transaction = {}; // {[randomString(KEY_LENGTH)]: {reaction, count}}
+const KEY_LENGTH = 8;
+
+let isTransaction = false;
+let actions = 0;
 
 export function startTransaction() {
   actions++;
@@ -22,13 +22,13 @@ export function endTransaction() {
     actions--;
   }
   while(isTransaction && actions === 0) {
-    var keys = Object.keys(transaction);
+    const keys = Object.keys(transaction);
     if (keys.length === 0) {
       isTransaction = false;
       break;
     }
-    keys.forEach(function(key) {
-      var obj = transaction[key];
+    keys.forEach(key => {
+      const obj = transaction[key];
       if (obj.count === 0) {
         obj.reaction.run();
         delete transaction[key];
@@ -45,15 +45,49 @@ export function action(thunk, context) {
     if (context != null) {
       thunk.apply(context, arguments);
     } else {
-      thunk(arguments); // not sure this makes sense as it would not be necessarily bound to observable state...
+      thunk(arguments);
     }
     endTransaction();
   }
 }
 
-function asObservable(initialValue) {
-  var value = initialValue;
-  var observers = [];
+export function Store(initialState, actions) {
+  var proxy = new Proxy(initialState, {
+    get: function(target, name, receiver) {
+      if (name in target && target[name] != undefined) {
+        if (target[name].get != null) {
+          return target[name].get();
+        } else {
+          return target[name];
+        }
+      } else {
+        return undefined;
+      }
+    },
+    set: function(target, name, value, receiver) {
+      if (name in target) {
+        if (target[name].set != null && value.set == null) {
+          if (value.set == null) {
+            target[name].set(value);
+          } else {
+            target[name] = value;
+          }
+        } else { // can't set computed 
+          return false;
+        }
+      } else {
+        target[name] = value;
+      }
+      return true;
+    }
+  });
+  return proxy;
+}
+
+export function observableValue(initialValue) {
+  let value = initialValue;
+  const observers = [];
+
   return {
     subscribe: function(observer) {
       observers.push(observer);
@@ -63,13 +97,13 @@ function asObservable(initialValue) {
     },
     set: function(newValue) {
       value = newValue;
-      observers.forEach(function(o) {
+      observers.forEach(o => {
         if (isTransaction) {
           var key = o.key;
           if (key in transaction) {
             transaction[key].count += 1;
           } else {
-            transaction[key] = { count: 1, reaction: o }
+            transaction[key] = { count: 1, reaction: o };
           }
         } else {
           o.run()
@@ -85,64 +119,18 @@ function asObservable(initialValue) {
   }
 }
 
-export function observable(orig) {
-  var obs = {};
-  var proxy = new Proxy(obs, {
-    get: function(target, name, receiver) {
-      if (name in target && target[name] != undefined) {
-        if (target[name].get != null) {
-          return target[name].get();
-        } else {
-          return target[name];
-        }
-      } else {
-        return undefined;
-      }
-    },
-    set: function(target, name, value, receiver) {
-      if (name in target) {
-        if (target[name].set != null) {
-          target[name].set(value);
-        } else {
-          target[name] = observable(value);
-        }
-      } else {
-        if (typeof value === "object" || typeof value === "undefined") {
-          target[name] = observable(value);
-        } else if (typeof value === "function" && target[name] == null) {
-          target[name] = computed(value, receiver);
-        } else {
-          target[name] = asObservable(value);
-        }
-      }
-      return true;
-    },
-    deleteProperty: function(target, name) {
-      if (name in target) {
-        delete target[name];
-        return true;
-      }
-      return false;
-    }
-  });
-  Object.keys(orig).forEach(function(key) {
-    proxy[key] = orig[key];
-  });
-  return proxy;
-}
-
 export function autorun(thunk) {
-  var observing = new Set();
-  var reaction = {
+  const observing = [];
+  const reaction = {
     addDependency: function(observable) {
-      observing.add(observable);
+      observing.push(observable);
     },
     run: function() {
       stack.push(this);
-      observing.forEach(function(o) { o.unsubscribe(this); });
+      observing.splice(0).forEach(o => o.unsubscribe(this));
       thunk();
-      observing.forEach(function(o) { o.subscribe(this); });
-      stack.pop();
+      observing.forEach(o => o.subscribe(this));
+      stack.pop(this);
     },
     key: thunk.key ? thunk.key : randomString(KEY_LENGTH)
   }
@@ -150,9 +138,9 @@ export function autorun(thunk) {
 }
 
 export function computed(thunk, context) {
-  var current = asObservable(undefined);
-  var computation = function() {
-    var result = context != null ? thunk.call(context) : thunk();
+  const current = observableValue(undefined);
+  const computation = function() {
+    const result = context != null ? thunk.call(context) : thunk();
     current.set(result);
   }
   computation.key = randomString(KEY_LENGTH);
@@ -160,52 +148,16 @@ export function computed(thunk, context) {
   return current;
 }
 
-export function Store(state, actions) {
-  var obsState = observable(state);
-  var acts = {};
-  Object.keys(actions).forEach(function(key) {
-    acts[key] = action(actions[key], obsState);
-  });
-  return { state: obsState, actions: acts };
-}
+const first = observableValue("Andy");
+const last = observableValue("Johnson");
 
-/* example usage
-const store = Store({
-  counter: 0,
-  first: "Andy",
-  last: "Johnson",
-  nested: {
-    data: "foobar"
-  },
-  test: function() {
-    return this.first + " " + this.last;
-  },
-  test2: function() {
-    return this.test + ": " + this.counter;
-  }
-},
-{
-  increment: function() {this.counter++;},
-  decrement: function() {this.counter--;},
-  updateFirst: function(name) {this.first = name;},
-  updateLast: function(name) {this.last = name;} 
+const fullname = computed(() => {
+  return first.get() + " " + last.get();
 });
 
-autorun(function() {
-  console.log(store.state.test2);
-});
-
-autorun(function() {
-  console.log(store.state.test);
+autorun(() => {
+  console.log(fullname.get());
 })
 
-autorun(function() {
-  console.log(store.state.nested.data);
-})
-
-store.actions.increment();
-store.actions.updateFirst("Jon");
-store.actions.updateLast("Doe");
-store.actions.decrement();
-store.state.nested.data = "fizzbuzz";
-*/
+first.set("Jon");
+last.set("Doe");
