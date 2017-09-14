@@ -18,25 +18,25 @@ export function startTransaction() {
 }
 
 export function endTransaction() {
-  console.log(transaction);
-  if (actions > 0) {
+  if (actions > 1) {
     actions--;
-  }
-  while (isTransaction && actions === 0) {
-    const keys = Object.keys(transaction);
-    if (keys.length === 0) {
-      isTransaction = false;
-      break;
-    }
-    keys.forEach(function(key) {
-      const obj = transaction[key];
-      if (obj.count === 1) {
-        obj.reaction.run();
-        delete transaction[key];
-      } else if (obj.count > 1) {
-        obj.count -= 1;
+  } else {
+    while (isTransaction) {
+      const keys = Object.keys(transaction);
+      if (keys.length === 0) {
+        isTransaction = false;
+        break;
       }
-    });
+      keys.forEach(function(key) {
+        const obj = transaction[key];
+        if (obj.count === 1) {
+          obj.reaction.run();
+          delete transaction[key];
+        } else if (obj.count > 1) {
+          obj.count -= 1;
+        }
+      });
+    }
   }
 }
 
@@ -173,6 +173,7 @@ export function computed(thunk, context) {
   return current;
 }
 
+/*
 const counter = observable(0);
 const first = observable("Andy");
 const last = observable("Johnson");
@@ -196,3 +197,4 @@ first.set("Jon");
 last.set("Doe");
 counter.set(1);  
 endTransaction();
+*/

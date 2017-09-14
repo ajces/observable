@@ -1,6 +1,6 @@
 {
   "name": "@ajces/observable",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "mobx inspired observable state",
   "main": "dist/observable.js",
   "jsnext:main": "src/index.js",
@@ -18,7 +18,8 @@
   },
   "scripts": {
     "test": "npm run build && nyc ava",
-    "build": "rollup --config rollup.config.js",
+    "build": "rollup --config rollup.config.prod.js",
+    "build:dev": "rollup --config rollup.config.js",
     "prepublish": "npm run build",
     "format": "prettier --write 'src/**/*.js'",
     "release": "npm run build && git commit -am $npm_package_version && git tag $npm_package_version && git push && git push --tags && npm publish --access=public"

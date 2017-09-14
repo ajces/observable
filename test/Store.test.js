@@ -84,9 +84,10 @@ test("allow non-observable state...", t => {
     let val = store.counter;
     count++;
   });
+  t.is(count, 1);
   store.counter++;
   t.is(store.counter, 1);
-  t.is(count, 1);
+  t.is(count, 2);
 });
 
 test("allow new state to be added to store after init", t => {
