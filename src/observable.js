@@ -18,24 +18,25 @@ export function startTransaction() {
 }
 
 export function endTransaction() {
+  console.log(transaction);
   if (actions > 0) {
     actions--;
   }
-  while(isTransaction && actions === 0) {
+  while (isTransaction && actions === 0) {
     const keys = Object.keys(transaction);
     if (keys.length === 0) {
       isTransaction = false;
       break;
     }
-    keys.forEach(key => {
+    keys.forEach(function(key) {
       const obj = transaction[key];
-      if (obj.count === 0) {
+      if (obj.count === 1) {
         obj.reaction.run();
         delete transaction[key];
-      } else {
+      } else if (obj.count > 1) {
         obj.count -= 1;
       }
-    })
+    });
   }
 }
 
@@ -48,10 +49,10 @@ export function action(thunk, context) {
       thunk(arguments);
     }
     endTransaction();
-  }
+  };
 }
 
-export function Store(state, actions) {
+export function Store(state, actions, autoWrapState = true) {
   const proxy = new Proxy(state, {
     get: function(target, name, receiver) {
       if (name in target && target[name] != undefined) {
@@ -70,14 +71,16 @@ export function Store(state, actions) {
     },
     set: function(target, name, value, receiver) {
       if (name in target) {
-        if (target[name].set != null && value.set == null) {
-          if (value.set == null) {
+        if (target[name].set != null) {
+          if (target[name]._noset === true) {
+            return false;
+          } else if (value.set == null) {
             target[name].set(value);
           } else {
             target[name] = value;
           }
-        } else { // can't set computed 
-          return false;
+        } else {
+          target[name] = value;
         }
       } else {
         target[name] = value;
@@ -86,14 +89,15 @@ export function Store(state, actions) {
     }
   });
 
-  Object.keys(state).forEach(key => {
+  Object.keys(state).forEach(function(key) {
     if (typeof state[key] === "function") {
-      const fn = state[key];
-      state[key] = computed(fn, proxy);
+      state[key] = computed(state[key], proxy);
+    } else if (autoWrapState) {
+      state[key] = observable(state[key]);
     }
   });
 
-  Object.keys(actions).forEach(key => {
+  Object.keys(actions).forEach(function(key) {
     if (key in state) {
       throw new Error("action and state conflict for key = " + key);
     }
@@ -126,7 +130,7 @@ export function observable(initialValue) {
             transaction[key] = { count: 1, reaction: o };
           }
         } else {
-          o.run()
+          o.run();
         }
       });
     },
@@ -136,7 +140,7 @@ export function observable(initialValue) {
       }
       return value;
     }
-  }
+  };
 }
 
 export function autorun(thunk) {
@@ -153,7 +157,7 @@ export function autorun(thunk) {
       stack.pop(this);
     },
     key: thunk.key ? thunk.key : randomString(KEY_LENGTH)
-  }
+  };
   reaction.run();
 }
 
@@ -162,73 +166,33 @@ export function computed(thunk, context) {
   const computation = function() {
     const result = context != null ? thunk.call(context) : thunk();
     current.set(result);
-  }
+  };
   computation.key = randomString(KEY_LENGTH);
   autorun(computation);
+  current._noset = true;
   return current;
 }
 
-// example store usage
-/*
-const store = Store({
-  counter: observable(0),
-  first: observable("Andy"),
-  last: observable("Johnson"),
-  fullname: function() {
-    return `${this.first} ${this.last}`;
-  },
-  test: function() {
-    return `${this.fullname}: ${this.counter}`;
-  }
-}, {
-  updateFirst: function(name) {
-    this.first = name;
-  },
-  updateLast: function(name) {
-    this.last = name;
-  },
-  incrementCounter: function() {
-    this.counter++;
-  },
-  decrementCounter: function() {
-    this.counter--;
-  }
-})
-
-autorun(() => {
-  console.log(store.fullname);
-});
-
-autorun(() => {
-  console.log(store.test);
-})
-
-store.updateFirst("Jon");
-store.updateLast("Doe");
-store.incrementCounter();
-*/
-
-/* example usage of raw functions...
 const counter = observable(0);
 const first = observable("Andy");
 const last = observable("Johnson");
 const fullname = computed(() => {
-  return first.get() + " " + last.get();
+  return `${first.get()} ${last.get()}`;
 });
-const test = computed(() => {
-  return fullname.get() + " " + counter.get();
-});
+const x = computed(() => {
+  return `${fullname.get()}: ${counter.get()}`;
+})
 
 autorun(() => {
   console.log(fullname.get());
 });
 
 autorun(() => {
-  console.log(test.get());
+  console.log(x.get());
 });
 
 startTransaction();
 first.set("Jon");
 last.set("Doe");
+counter.set(1);  
 endTransaction();
-*/

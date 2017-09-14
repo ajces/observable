@@ -11,6 +11,7 @@ package-lock.json
 example
 node_modules
 coverage
+.nyc_output
 *.xml
 
 # Dist
