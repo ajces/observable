@@ -51,8 +51,8 @@ export function action(thunk, context) {
   }
 }
 
-export function Store(initialState, actions) {
-  var proxy = new Proxy(initialState, {
+export function Store(state, actions) {
+  const proxy = new Proxy(state, {
     get: function(target, name, receiver) {
       if (name in target && target[name] != undefined) {
         if (target[name].get != null) {
@@ -61,7 +61,11 @@ export function Store(initialState, actions) {
           return target[name];
         }
       } else {
-        return undefined;
+        if (name in actions) {
+          return actions[name];
+        } else {
+          return undefined;
+        }
       }
     },
     set: function(target, name, value, receiver) {
@@ -81,10 +85,26 @@ export function Store(initialState, actions) {
       return true;
     }
   });
+
+  Object.keys(state).forEach(key => {
+    if (typeof state[key] === "function") {
+      const fn = state[key];
+      state[key] = computed(fn, proxy);
+    }
+  });
+
+  Object.keys(actions).forEach(key => {
+    if (key in state) {
+      throw new Error("action and state conflict for key = " + key);
+    }
+    const fn = actions[key];
+    actions[key] = action(fn, proxy);
+  });
+
   return proxy;
 }
 
-export function observableValue(initialValue) {
+export function observable(initialValue) {
   let value = initialValue;
   const observers = [];
 
@@ -138,7 +158,7 @@ export function autorun(thunk) {
 }
 
 export function computed(thunk, context) {
-  const current = observableValue(undefined);
+  const current = observable(undefined);
   const computation = function() {
     const result = context != null ? thunk.call(context) : thunk();
     current.set(result);
@@ -148,16 +168,67 @@ export function computed(thunk, context) {
   return current;
 }
 
-const first = observableValue("Andy");
-const last = observableValue("Johnson");
+// example store usage
+/*
+const store = Store({
+  counter: observable(0),
+  first: observable("Andy"),
+  last: observable("Johnson"),
+  fullname: function() {
+    return `${this.first} ${this.last}`;
+  },
+  test: function() {
+    return `${this.fullname}: ${this.counter}`;
+  }
+}, {
+  updateFirst: function(name) {
+    this.first = name;
+  },
+  updateLast: function(name) {
+    this.last = name;
+  },
+  incrementCounter: function() {
+    this.counter++;
+  },
+  decrementCounter: function() {
+    this.counter--;
+  }
+})
 
+autorun(() => {
+  console.log(store.fullname);
+});
+
+autorun(() => {
+  console.log(store.test);
+})
+
+store.updateFirst("Jon");
+store.updateLast("Doe");
+store.incrementCounter();
+*/
+
+/* example usage of raw functions...
+const counter = observable(0);
+const first = observable("Andy");
+const last = observable("Johnson");
 const fullname = computed(() => {
   return first.get() + " " + last.get();
+});
+const test = computed(() => {
+  return fullname.get() + " " + counter.get();
 });
 
 autorun(() => {
   console.log(fullname.get());
-})
+});
 
+autorun(() => {
+  console.log(test.get());
+});
+
+startTransaction();
 first.set("Jon");
 last.set("Doe");
+endTransaction();
+*/
