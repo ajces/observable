@@ -2,93 +2,117 @@
 "use strict";
 import { randomString } from "@ajces/utils";
 
+const KEY_LENGTH = 8;
 const stack = [];
 
-const transaction = {}; // {[randomString(KEY_LENGTH)]: {reaction, count}}
-const KEY_LENGTH = 8;
-
-let isTransaction = false;
-let actions = 0;
-
-export function startTransaction() {
-  actions++;
-  if (isTransaction === false) {
-    isTransaction = true;
-  }
+// create these helpers after... may add properties to describe what each var is...
+function isObservable(o) {
+  return typeof o === "function" && o._type === "observable";
 }
 
-export function endTransaction() {
-  if (actions > 1) {
-    actions--;
-  } else {
-    while (isTransaction) {
-      const keys = Object.keys(transaction);
-      if (keys.length === 0) {
-        isTransaction = false;
-        break;
-      }
-      keys.forEach(function(key) {
-        const obj = transaction[key];
-        if (obj.count === 1) {
-          obj.reaction.run();
-          delete transaction[key];
-        } else if (obj.count > 1) {
-          obj.count -= 1;
-        }
+function Observable(newValue) {
+  let value = newValue;
+  const observers = [];
+  const fn = function(newValue) {
+    if (newValue != null) { // set
+      value = newValue;
+      observers.forEach(o => {
+        o.run();
       });
+    } else {
+      if (stack.length > 0) {
+        stack[stack.length - 1].addDependency(fn);
+      }
+      return value;
     }
   }
-}
-
-export function action(thunk, context) {
-  return function() {
-    startTransaction();
-    if (context != null) {
-      thunk.apply(context, arguments);
-    } else {
-      thunk(arguments);
-    }
-    endTransaction();
+  fn._type = "observable";
+  fn.subscribe = function(observer) {
+    observers.push(observer);
   };
+  fn.unsubscribe = function(observer) {
+    observers.splice(observers.indexOf(observer), 1);
+  };
+  return fn;
 }
 
-export function Store(state, actions, autoWrapState = true) {
+function isDispose(o) {
+  return typeof o === "function" && o._type === "dispose";
+}
+
+function autorun(thunk) {
+  const observing = []; 
+  const reaction = {
+    addDependency: function(observable) {
+      observing.push(observable);
+    },
+    run: function() {
+      stack.push(this);
+      observing.splice(0).forEach(o => o.unsubscribe(this));
+      thunk();
+      observing.forEach(o => o.subscribe(this));
+      stack.pop(this);
+    }
+  };
+  reaction.run();
+  const dispose = function() {
+    // clean up observable stuff associate with this autorun...
+  }
+  dispose._type = "dispose";
+  return dispose;
+}
+
+function isComputed(o) {
+  return typeof o === "function" && o._type === "computed";
+}
+
+function Computed(thunk, context) {
+  const current = Observable(undefined);
+  const computation = function() {
+    const result = context != null ? thunk.call(context) : thunk();
+    current(result);
+  };
+  autorun(computation);
+  const fn = function() {
+    // throw error if args > 0?  that would mean someone tried to set computed...
+    return current();
+  }
+  fn._type = "computed";
+  return fn;
+}
+
+function Store(state) {
+  const observe = []; // array of keys to observe...
   const proxy = new Proxy(state, {
     get: function(target, name, receiver) {
-      if (name in target && target[name] != undefined) {
-        if (target[name].get != null) {
-          return target[name].get();
-        } else {
-          return target[name];
-        }
+      if (name in target) {
+        if (typeof target[name] === "function" && target[name].toString())
+        return target[name];
       } else {
-        if (name in actions) {
-          return actions[name];
-        } else {
-          return undefined;
-        }
+        return undefined;
       }
     },
     set: function(target, name, value, receiver) {
       if (name in target) {
-        if (target[name].set != null) {
-          if (target[name]._noset === true) {
-            return false;
-          } else if (value.set == null) {
-            target[name].set(value);
-          } else {
-            target[name] = value;
-          }
-        } else {
-          target[name] = value;
-        }
+
+        return true;
       } else {
-        target[name] = value;
+        return false;
       }
-      return true;
+    },
+    apply: function(target, context, args) {
+      // function to modify the observable...
+      //store("data", "key", value, bUnobserved=false);
+      //store("action", "key", fn);
+      //store("computed", "key", fn);
+      //store("child", "key", {});
+    },
+    deleteProperty: function(target, name) {
+      // handle removing observer stuff for this key..
     }
   });
 
+  /*
   Object.keys(state).forEach(function(key) {
     if (typeof state[key] === "function") {
       state[key] = computed(state[key], proxy);
@@ -104,97 +128,29 @@ export function Store(state, actions, autoWrapState = true) {
     const fn = actions[key];
     actions[key] = action(fn, proxy);
   });
-
+  */
   return proxy;
 }
 
-export function observable(initialValue) {
-  let value = initialValue;
-  const observers = [];
-
-  return {
-    subscribe: function(observer) {
-      observers.push(observer);
-    },
-    unsubscribe: function(observer) {
-      observers.splice(observers.indexOf(observer), 1);
-    },
-    set: function(newValue) {
-      value = newValue;
-      observers.forEach(o => {
-        if (isTransaction) {
-          var key = o.key;
-          if (key in transaction) {
-            transaction[key].count += 1;
-          } else {
-            transaction[key] = { count: 1, reaction: o };
-          }
-        } else {
-          o.run();
-        }
-      });
-    },
-    get: function() {
-      if (stack.length > 0) {
-        stack[stack.length - 1].addDependency(this);
-      }
-      return value;
-    }
-  };
-}
-
-export function autorun(thunk) {
-  const observing = [];
-  const reaction = {
-    addDependency: function(observable) {
-      observing.push(observable);
-    },
-    run: function() {
-      stack.push(this);
-      observing.splice(0).forEach(o => o.unsubscribe(this));
-      thunk();
-      observing.forEach(o => o.subscribe(this));
-      stack.pop(this);
-    },
-    key: thunk.key ? thunk.key : randomString(KEY_LENGTH)
-  };
-  reaction.run();
-}
-
-export function computed(thunk, context) {
-  const current = observable(undefined);
-  const computation = function() {
-    const result = context != null ? thunk.call(context) : thunk();
-    current.set(result);
-  };
-  computation.key = randomString(KEY_LENGTH);
-  autorun(computation);
-  current._noset = true;
-  return current;
-}
-
-/*
-const counter = observable(0);
-const first = observable("Andy");
-const last = observable("Johnson");
-const fullname = computed(() => {
-  return `${first.get()} ${last.get()}`;
+const count = Observable(0);
+const first = Observable("Andy");
+const last = Observable("Johnson");
+const fullName = Computed(() => {
+  return first() + " " + last();
 });
-const x = computed(() => {
-  return `${fullname.get()}: ${counter.get()}`;
+const fullCount = Computed(() => {
+  return fullName() + ": " + count();
 })
 
 autorun(() => {
-  console.log(fullname.get());
+  console.log(fullName());
 });
 
 autorun(() => {
-  console.log(x.get());
-});
+  console.log(fullCount());
+})
 
-startTransaction();
-first.set("Jon");
-last.set("Doe");
-counter.set(1);  
-endTransaction();
-*/
+count(2);
+first("Jon");
+last("Doe");
+last("FOOBAR");
